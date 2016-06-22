@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -9,19 +10,23 @@ import (
 	"time"
 )
 
+type result float32
+
+const NO_RESULT result = 0
+
 type downloader struct {
-	url      string
-	size     int
-	attempts int
-	client   *http.Client
+	url     string
+	size    int64
+	threads int
+	client  *http.Client
 }
 
 func newDownloader() *downloader {
 	return &downloader{
-		url:      os.Getenv("SERVER"),
-		size:     100 * 1024 * 1024,
-		attempts: 3,
-		client:   http.DefaultClient,
+		url:     os.Getenv("SERVER"),
+		size:    20 * 1024 * 1024,
+		threads: 4,
+		client:  http.DefaultClient,
 	}
 }
 
@@ -30,9 +35,9 @@ func (this *downloader) printableResult() string {
 }
 
 func (this *downloader) run() float32 {
-	results := make(chan float32, this.attempts)
+	results := make(chan result, this.threads)
 
-	for i := 0; i < this.attempts; i++ {
+	for i := 0; i < this.threads; i++ {
 		go func() {
 			url := fmt.Sprintf("%s/download?size=%d", this.url, this.size)
 
@@ -46,56 +51,65 @@ func (this *downloader) run() float32 {
 
 			if err != nil {
 				log.Println(err)
-				results <- 0
-			}
+				results <- NO_RESULT
 
-			// Stop timing (errors might still have happened".
-			t = time.Now().UnixNano() - t
+				return
+			}
 
 			if resp.StatusCode != 200 {
 				log.Println(resp.Status)
-				results <- 0
+				results <- NO_RESULT
+
+				return
 			}
 
 			// Read body so that trailer headers become accessible
-			resp.Body.Read(nil)
+			ioutil.ReadAll(resp.Body)
+
+			// Stop timing (errors might still have happened".
+			t = time.Now().UnixNano() - t
 
 			// Subtract process time
 			h := resp.Trailer.Get("X-Duration")
 			processTime, err := strconv.ParseInt(h, 0, 0)
 
+			log.Printf("Process time: %d. Total time: %d", processTime, t)
+
 			if err != nil {
 				log.Printf("Bad download header value: %s\n", h)
-				results <- 0
+				results <- NO_RESULT
+
+				return
 			}
 
 			t -= processTime
 
-			// Push result
-			results <- float32(this.size) / float32(t)
-		}()
+			mbSize := bToMb(this.size)
+			sTime := nanoToS(t)
 
-		time.Sleep(1 * time.Second)
+			log.Printf("Downloaded %.3f MB in %.3fs", mbSize, sTime)
+
+			// Push result
+			results <- result(mbSize / sTime)
+		}()
 	}
 
 	var r float32
 	var sum float32 = 0
-	successfulAttempts := this.attempts
 
-	for i := 0; i < this.attempts; i++ {
-		r = <-results
-
-		if r == 0 {
-			successfulAttempts -= 1
-			continue
-		}
+	for i := 0; i < this.threads; i++ {
+		r = float32(<-results)
 
 		sum += r
 	}
 
-	if successfulAttempts == 0 {
-		return 0
-	} else {
-		return sum / float32(successfulAttempts)
-	}
+	return sum
+}
+
+func bToMb(bytes int64) float32 {
+	return float32(bytes) / (1 << 20)
+}
+
+func nanoToS(nano int64) float32 {
+	return float32(nano) / 1000000000
 }
