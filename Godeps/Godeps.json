@@ -1,0 +1,15 @@
+{
+	"ImportPath": "github.com/mihai-scurtu/speedtest",
+	"GoVersion": "go1.6",
+	"Deps": [
+		{
+			"ImportPath": "github.com/joho/godotenv",
+			"Comment": "v1-10-g4ed1339",
+			"Rev": "4ed13390c0acd2ff4e371e64d8b97c8954138243"
+		},
+		{
+			"ImportPath": "golang.org/x/tools/container/intsets",
+			"Rev": "a17fa845d74d17bf6d466f84fd9d3c5602669e53"
+		}
+	]
+}
