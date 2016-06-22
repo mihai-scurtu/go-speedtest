@@ -10,6 +10,7 @@ type speedTest interface {
 func Run() {
 	tests := []speedTest{
 		newPinger(),
+		newDownloader(),
 	}
 
 	for _, t := range tests {
