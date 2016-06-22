@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -35,9 +36,12 @@ func (this *downloader) run() float32 {
 		go func() {
 			url := fmt.Sprintf("%s/download?size=%d", this.url, this.size)
 
-			t := time.Now().UnixNano()
 			req, _ := http.NewRequest("GET", url, nil)
 
+			// Start timing.
+			t := time.Now().UnixNano()
+
+			// Run request
 			resp, err := this.client.Do(req)
 
 			if err != nil {
@@ -45,12 +49,29 @@ func (this *downloader) run() float32 {
 				results <- 0
 			}
 
+			// Stop timing (errors might still have happened".
+			t = time.Now().UnixNano() - t
+
 			if resp.StatusCode != 200 {
 				log.Println(resp.Status)
 				results <- 0
 			}
 
-			t = time.Now().UnixNano() - t
+			// Read body so that trailer headers become accessible
+			resp.Body.Read(nil)
+
+			// Subtract process time
+			h := resp.Trailer.Get("X-Duration")
+			processTime, err := strconv.ParseInt(h, 0, 0)
+
+			if err != nil {
+				log.Printf("Bad download header value: %s\n", h)
+				results <- 0
+			}
+
+			t -= processTime
+
+			// Push result
 			results <- float32(this.size) / float32(t)
 		}()
 
